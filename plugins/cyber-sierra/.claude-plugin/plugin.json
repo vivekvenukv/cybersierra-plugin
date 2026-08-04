@@ -1,8 +1,8 @@
 {
   "id": "cyber-sierra",
   "name": "cyber-sierra",
-  "version": "0.2.0",
-  "description": "Compliance automation plugin for Claude Code. Orchestrates audit workflows, assessment creation, evidence collection, vendor risk management, and report generation through the Cyber Sierra CLI.",
+  "version": "0.3.0",
+  "description": "Compliance automation plugin for Claude Code and Cursor. Orchestrates audit workflows, assessment creation, evidence collection, vendor risk management, and report generation through the Morpheus CLI.",
   "assets": [
     "skills/**"
   ]

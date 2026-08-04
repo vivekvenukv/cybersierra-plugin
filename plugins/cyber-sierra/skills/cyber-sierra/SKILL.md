@@ -8,7 +8,7 @@ description: >-
   run audit, generate report, login to cyber sierra, sign in to cyber
   sierra, authenticate with cyber sierra, cyber sierra login, connect
   to cyber sierra, or any multi-step compliance task.
-allowed-tools: "Shell(morpheus *) Shell(*/morpheus *) Shell(npx morpheus *) Shell(npm *) Shell(python3 *) Read Write"
+allowed-tools: "Bash(morpheus *) Bash(*/morpheus *) Bash(npx morpheus *) Bash(npm *) Bash(python3 *) Shell(morpheus *) Shell(*/morpheus *) Shell(npx morpheus *) Shell(npm *) Shell(python3 *) Read Write"
 ---
 
 # Cyber Sierra — Router & Orchestrator
@@ -43,7 +43,7 @@ After installation, `morpheus` will be available on PATH. This check must happen
 
 ## Environment URLs
 
-Use these base URLs for each environment. **Default to `dev` unless the user specifies otherwise.**
+Use these base URLs for each environment. **Default to `prod` unless the user specifies otherwise.**
 
 | Environment | Base URL                                      |
 | ----------- | --------------------------------------------- |
@@ -176,45 +176,49 @@ The Executor is deterministic runtime logic. It:
 
    Authentication is a required checkpoint. Do **not** continue execution until authentication has completed successfully.
 
-   1. Resolve the base URL from the Environment URLs table (default: `dev`).
-   2. Run:
+   **Primary flow — `login-browser`:**
+
+   1. Resolve the base URL from the Environment URLs table (default: `prod`).
+   2. Run the login command:
       ```bash
       morpheus auth login-browser --url <baseUrl>
       ```
-      in the **background** (`block_until_ms: 0`).
-   3. Immediately read the terminal output produced by the command and extract:
-      - the login URL
-      - the confirmation code
-   4. Verify that **both values were successfully extracted**.
-      - If either value is missing, reread the terminal output once.
-      - If either value is still missing, stop immediately and report that authentication could not be initialized. Do **not** continue execution.
-   5. Before displaying anything else related to execution, show **only** the following message to the user:
+      The CLI starts a session on the backend, persists it to `pending-session.json`, opens the user's default browser, and polls until the user completes login (supports MFA/SSO). The command blocks until authentication succeeds, the session expires, or the 5-minute local timeout fires.
+   3. From the command output, extract the **login URL** and **confirmation code**. Present them immediately to the user.
+   4. Display the following message clearly separated from other output:
 
-      # 🔐 Cyber Sierra Login Required
+      **Cyber Sierra Login Required**
 
       Open this URL in your browser to authenticate:
-
       `<loginUrl>`
 
-      ## Confirmation Code
-
-      ## `<userCode>`
+      **Confirmation Code: `<userCode>`**
 
       Verify this code matches what the browser shows before confirming.
 
-      Waiting for authentication...
+   5. Do not summarize, rephrase, shorten, or embed this information inside other execution logs. The login URL and confirmation code must be clearly separated from all other output and easy for the user to locate.
+   6. Once the command exits with code 0, authentication succeeded — continue execution.
+   7. If the command exits with a non-zero code (timeout, process killed, network failure), inform the user that login did not complete and offer to resume (see recovery below).
 
-      ### Confirmation Code:** 
-      ## `<userCode>`
+   **Recovery flow — `auth poll` (use only when needed):**
 
-   6. Do not summarize, rephrase, shorten, or embed this information inside other execution logs. The login URL and confirmation code must be clearly separated from all other output and easy for the user to locate.
-   7. Poll the background shell using `Await` with the pattern:
-      ```
-      Authenticated successfully
-      ```
-      until authentication succeeds.
-   8. Once authentication succeeds, continue executing the remaining workflow.
-   9. If login fails, expires, or times out, halt execution and report the authentication failure to the user.
+   Use `morpheus auth poll` when:
+   - The `login-browser` process was interrupted (tool timeout, process killed, harness restart)
+   - The user asks to "check auth status" or "resume login"
+   - A prior authentication attempt did not complete but the session may still be valid
+
+   Do NOT use `auth poll` as the default path. It is strictly a recovery mechanism.
+
+   ```bash
+   morpheus auth poll
+   ```
+
+   Behavior:
+   - Reads `pending-session.json` from disk
+   - If the session has expired, clears the file and exits with an error — start fresh with `login-browser`
+   - If still valid, re-prints the login URL and confirmation code, then resumes polling
+   - On success (exit 0): authentication complete, continue execution
+   - On failure: report the error and suggest the user run `login-browser` again for a fresh session
 3. Collects any unresolved `{{inputs.*}}` values from the user
 4. Executes each step sequentially:
    - Resolves `{{inputs.*}}` and `{{step[N].*}}` references
@@ -238,6 +242,30 @@ Tell the user:
 - What was accomplished
 - Whether a skill was learned (and its name)
 - Any notable improvements from reflection
+
+## Results Presentation
+
+When presenting compliance data to the user after execution:
+
+- **Tables**: Use markdown tables for structured listings (assessments, vendors, controls, evidence items). Keep columns to 4-5 max for readability.
+- **Risk highlighting**: Bold or call out HIGH/CRITICAL risk items explicitly. Example: "**3 controls are non-compliant** and require immediate attention."
+- **Summaries first**: Lead with a count summary before details. Example: "Found 12 controls: 9 compliant, 2 pending evidence, 1 non-compliant."
+- **Large datasets**: For results exceeding 20 rows, summarize in-line and offer to export the full data as a JSON or CSV file.
+- **Reports**: For audit reports or detailed compliance summaries, generate an HTML file and tell the user to open it in their browser for better readability.
+- **Actionable items**: Always end with a "Next Steps" list if there are outstanding actions (missing evidence, overdue assessments, high-risk vendors).
+
+## First-Run & Onboarding
+
+When `morpheus auth whoami` fails and no prior session exists, this is likely a first-time user. Guide them through setup:
+
+1. **Greet**: "Welcome to Cyber Sierra. Let's get you connected."
+2. **Environment**: Ask which environment they want to connect to (prod/dev/int). Default to prod.
+3. **Authenticate**: Run the Authentication Protocol.
+4. **Verify**: After successful auth, run a simple read command to confirm connectivity:
+   ```bash
+   morpheus auth whoami --profile morpheus
+   ```
+5. **Confirm**: Report success with their identity info (org name, role) and suggest a first action: "You're connected. Try asking me to list your assessments or run an audit."
 
 ## Progressive Disclosure
 
